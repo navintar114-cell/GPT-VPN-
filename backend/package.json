@@ -1,0 +1,14 @@
+{
+  "name": "gpt-vpn-control-plane",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Initial safe control-plane API scaffold for GPT VPN",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  }
+}
