@@ -168,13 +168,19 @@ export function createServer() {
         let regionFilter = "";
         const regionId = url.searchParams.get("regionId");
         if (regionId) {
+          const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+          if (!uuidPattern.test(regionId)) {
+            return sendJson(res, 400, {
+              error: { code: "INVALID_REGION_ID", message: "regionId must be a valid UUID." }
+            }, requestId);
+          }
           values.push(regionId);
           regionFilter = " AND r.id = $1";
         }
 
         const result = await pool.query(`
           SELECT s.id, r.country_code AS "countryCode",
-                 r.name AS region, s.provider_type AS "providerType",
+                 r.name AS region, p.provider_type AS "providerType",
                  p.display_name AS "providerName",
                  s.wireguard_endpoint AS "wireGuardEndpoint",
                  s.wireguard_public_key AS "publicKey",
