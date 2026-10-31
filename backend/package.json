@@ -1,14 +1,17 @@
 {
   "name": "gpt-vpn-control-plane",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Initial safe control-plane API scaffold for GPT VPN",
+  "description": "GPT VPN control plane with a PostgreSQL verified-server registry",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
     "start": "node server.js",
     "test": "node --test"
+  },
+  "dependencies": {
+    "pg": "^8.16.3"
   }
 }
