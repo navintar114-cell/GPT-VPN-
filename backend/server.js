@@ -14,6 +14,21 @@ const allowedOrigins = new Set(
 const rateWindowMs = 60_000;
 const rateLimit = 60;
 const requestsByIp = new Map();
+let poolPromise;
+
+async function getPool() {
+  if (!process.env.DATABASE_URL) return null;
+  if (!poolPromise) {
+    poolPromise = import("pg").then(({ Pool }) => new Pool({
+      connectionString: process.env.DATABASE_URL,
+      max: 10,
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 5_000,
+      ssl: process.env.PGSSL === "true" ? { rejectUnauthorized: true } : undefined
+    }));
+  }
+  return poolPromise;
+}
 
 function sendJson(res, statusCode, payload, requestId) {
   const body = JSON.stringify({ ...payload, requestId });
@@ -54,72 +69,153 @@ function isRateLimited(req) {
   return current.count > rateLimit;
 }
 
+const verifiedServerPredicate = `
+  s.status = 'ACTIVE'
+  AND s.verified_at IS NOT NULL
+  AND s.last_health_check >= NOW() - INTERVAL '5 minutes'
+  AND s.capacity_state = 'AVAILABLE'
+  AND p.status = 'VERIFIED'
+  AND p.permission_verified_at IS NOT NULL
+`;
+
 export function createServer() {
-  return http.createServer((req, res) => {
+  return http.createServer(async (req, res) => {
     const requestId = randomUUID();
 
-    if (!applyCors(req, res)) {
-      return sendJson(res, 403, {
-        error: { code: "ORIGIN_NOT_ALLOWED", message: "This origin is not allowed." }
-      }, requestId);
-    }
+    try {
+      if (!applyCors(req, res)) {
+        return sendJson(res, 403, {
+          error: { code: "ORIGIN_NOT_ALLOWED", message: "This origin is not allowed." }
+        }, requestId);
+      }
 
-    if (req.method === "OPTIONS") {
-      res.writeHead(204);
-      return res.end();
-    }
+      if (req.method === "OPTIONS") {
+        res.writeHead(204);
+        return res.end();
+      }
 
-    if (isRateLimited(req)) {
-      return sendJson(res, 429, {
-        error: { code: "RATE_LIMITED", message: "Too many requests. Try again later." }
-      }, requestId);
-    }
+      if (isRateLimited(req)) {
+        return sendJson(res, 429, {
+          error: { code: "RATE_LIMITED", message: "Too many requests. Try again later." }
+        }, requestId);
+      }
 
-    const url = new URL(req.url ?? "/", "http://localhost");
-    const pathname = url.pathname;
+      const url = new URL(req.url ?? "/", "http://localhost");
+      const pathname = url.pathname;
 
-    if (req.method === "GET" && pathname === "/v1/health") {
-      return sendJson(res, 200, {
-        status: "ok",
-        service: "gpt-vpn-control-plane",
-        scope: "control-plane-only",
-        vpnDataPlane: "not-configured"
-      }, requestId);
-    }
-
-    if (req.method === "GET" && pathname === "/v1/regions") {
-      return sendJson(res, 200, {
-        items: [],
-        count: 0,
-        source: "verified_registry",
-        message: "No verified production regions are configured."
-      }, requestId);
-    }
-
-    if (req.method === "GET" && pathname === "/v1/servers") {
-      return sendJson(res, 200, {
-        items: [],
-        count: 0,
-        source: "verified_registry",
-        message: "No verified production servers are configured."
-      }, requestId);
-    }
-
-    if (
-      (req.method === "POST" && (pathname === "/v1/sessions" || /^\/v1\/servers\/[^/]+\/peers$/.test(pathname))) ||
-      (req.method === "DELETE" && /^\/v1\/sessions\/[^/]+$/.test(pathname))
-    ) {
-      return sendJson(res, 503, {
-        error: {
-          code: "PROVISIONING_NOT_CONFIGURED",
-          message: "VPN session and WireGuard peer provisioning are not implemented."
+      if (req.method === "GET" && pathname === "/v1/health") {
+        let database = "not-configured";
+        const pool = await getPool();
+        if (pool) {
+          try {
+            await pool.query("SELECT 1");
+            database = "ok";
+          } catch {
+            database = "unavailable";
+          }
         }
+        return sendJson(res, 200, {
+          status: "ok",
+          service: "gpt-vpn-control-plane",
+          scope: "control-plane-only",
+          database,
+          vpnDataPlane: "not-configured"
+        }, requestId);
+      }
+
+      if (req.method === "GET" && pathname === "/v1/regions") {
+        const pool = await getPool();
+        if (!pool) {
+          return sendJson(res, 200, {
+            items: [],
+            count: 0,
+            source: "verified_registry",
+            registry: "not-configured",
+            message: "No database is configured; no production regions are available."
+          }, requestId);
+        }
+
+        const result = await pool.query(`
+          SELECT DISTINCT r.id, r.country_code AS "countryCode",
+                 r.name, r.continent
+          FROM regions r
+          JOIN vpn_servers s ON s.region_id = r.id
+          JOIN providers p ON p.id = s.provider_id
+          WHERE ${verifiedServerPredicate}
+          ORDER BY r.continent, r.name
+        `);
+        return sendJson(res, 200, {
+          items: result.rows,
+          count: result.rowCount,
+          source: "verified_registry",
+          registry: "connected"
+        }, requestId);
+      }
+
+      if (req.method === "GET" && pathname === "/v1/servers") {
+        const pool = await getPool();
+        if (!pool) {
+          return sendJson(res, 200, {
+            items: [],
+            count: 0,
+            source: "verified_registry",
+            registry: "not-configured",
+            message: "No database is configured; no production servers are available."
+          }, requestId);
+        }
+
+        const values = [];
+        let regionFilter = "";
+        const regionId = url.searchParams.get("regionId");
+        if (regionId) {
+          values.push(regionId);
+          regionFilter = " AND r.id = $1";
+        }
+
+        const result = await pool.query(`
+          SELECT s.id, r.country_code AS "countryCode",
+                 r.name AS region, s.provider_type AS "providerType",
+                 p.display_name AS "providerName",
+                 s.wireguard_endpoint AS "wireGuardEndpoint",
+                 s.wireguard_public_key AS "publicKey",
+                 s.capacity_state AS "capacityState",
+                 s.last_health_check AS "lastHealthCheck",
+                 s.verified_at AS "verifiedAt"
+          FROM vpn_servers s
+          JOIN regions r ON r.id = s.region_id
+          JOIN providers p ON p.id = s.provider_id
+          WHERE ${verifiedServerPredicate} ${regionFilter}
+          ORDER BY s.last_health_check DESC
+        `, values);
+        return sendJson(res, 200, {
+          items: result.rows,
+          count: result.rowCount,
+          source: "verified_registry",
+          registry: "connected"
+        }, requestId);
+      }
+
+      if (
+        (req.method === "POST" && (pathname === "/v1/sessions" || /^\\/v1\\/servers\\/[^/]+\\/peers$/.test(pathname))) ||
+        (req.method === "DELETE" && /^\\/v1\\/sessions\\/[^/]+$/.test(pathname))
+      ) {
+        return sendJson(res, 503, {
+          error: {
+            code: "PROVISIONING_NOT_CONFIGURED",
+            message: "VPN session and WireGuard peer provisioning are not implemented."
+          }
+        }, requestId);
+      }
+
+      return sendJson(res, 404, {
+        error: { code: "NOT_FOUND", message: "Route not found." }
+      }, requestId);
+    } catch {
+      // Deliberately avoid logging database errors, request URLs, or user traffic metadata.
+      return sendJson(res, 503, {
+        error: { code: "SERVICE_UNAVAILABLE", message: "The registry service is temporarily unavailable." }
       }, requestId);
     }
-
-    return sendJson(res, 404, {
-      error: { code: "NOT_FOUND", message: "Route not found." }
-    }, requestId);
   });
 }
 
