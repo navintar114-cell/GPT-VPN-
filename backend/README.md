@@ -16,6 +16,9 @@ The API listens on `127.0.0.1:8080` by default. Configure `HOST`, `PORT`,
 environment. Admin audit access additionally requires
 `ADMIN_API_TOKEN_SHA256` and `ADMIN_API_TOKEN_ACTOR_ID`. Never commit database
 URLs, passwords, provider credentials, admin tokens, or WireGuard private keys.
+For deployments behind a reverse proxy, set `TRUSTED_PROXY_IPS` to a
+comma-separated list of exact proxy IP addresses; leave it unset when clients
+connect directly. Do not add broad or unverified proxy addresses.
 
 ## PostgreSQL setup
 
@@ -105,10 +108,20 @@ independently prove that evidence is authentic or that the reviewer is authorize
 - Admin authentication is throttled after 10 failed attempts per source IP in a
   15-minute window; successful audit-log reads are limited to 30 per source IP
   per minute. Responses include `Retry-After` when throttled.
-- Admin rate-limit counters are bounded in-memory process state. They reset on
-  process restart and are not shared across instances; they are a defense-in-depth
-  control, not a substitute for gateway/WAF rate limiting. The API uses the socket
-  peer address and does not trust arbitrary `X-Forwarded-For` values.
+- Admin rate-limit counters are bounded in-memory process state by default.
+  They reset on process restart and are not shared across instances.
+- `TRUSTED_PROXY_IPS` accepts exact IP addresses only (not CIDR ranges). The API
+  honors `X-Forwarded-For` only when the immediate socket peer is in this explicit
+  allowlist. It validates the complete chain, caps it at 20 addresses, and walks
+  right-to-left to select the first untrusted hop. Invalid or absent headers fall
+  back to the socket peer. Never trust forwarded headers from arbitrary peers.
+- `createServer` accepts an asynchronous `adminRateLimiter` adapter implementing
+  `checkFailureBlocked(key)`, `recordFailure(key)`, `recordSuccess(key)`, and
+  `consumeRead(key)`. A shared-store implementation can use this seam, but none
+  is included or configured in this PR. Shared implementations must make
+  `recordFailure` and `consumeRead` atomic, apply expiry server-side, and fail
+  closed on store errors. Multi-instance/distributed limiting is NOT implemented
+  until a reviewed shared adapter and its integration tests are added.
 - Audit event details must be a plain JSON object no larger than 8 KiB after
   serialization; malformed or oversized payloads are rejected.
 - `ADMIN_API_TOKEN_ACTOR_ID` is a configured actor label, not independently
@@ -123,8 +136,9 @@ independently prove that evidence is authentic or that the reviewer is authorize
 - The API uses parameterized SQL for filters.
 - CORS is deny-by-default when an Origin header is present; configure exact
   trusted origins before a browser client is used.
-- Basic in-memory request limiting and security response headers are enabled.
-  Production still needs a gateway/WAF and distributed rate limiting.
+- Basic process-local request limiting and security response headers are enabled.
+  Production still needs a gateway/WAF and a separately deployed, tested
+  distributed rate limiter for multi-instance deployments.
 - Deploy behind HTTPS. Restrict database network access and use the dedicated
   least-privilege runtime role described above.
 - Database health is reported separately from VPN data-plane readiness.
