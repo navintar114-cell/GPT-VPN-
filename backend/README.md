@@ -78,8 +78,8 @@ narrow permissions and audited transaction handling.
 - `GET /v1/servers` — returns only eligible verified servers.
 - `GET /v1/servers?regionId={uuid}` — filters eligible verified servers by region.
 - `GET /v1/admin/audit-log` — returns recent admin audit events; requires a
-  valid admin bearer token and migration 003. Optional `limit` is restricted
-  to 1–100.
+  valid admin bearer token and migration 003. Optional `limit` must use
+  canonical decimal digits and be between 1 and 100.
 - Session creation, peer provisioning, and session revocation return
   `503 PROVISIONING_NOT_CONFIGURED` until authentication, session persistence,
   and WireGuard provisioning are implemented.
@@ -102,6 +102,8 @@ independently prove that evidence is authentic or that the reviewer is authorize
 - `reviewed_by` is currently a text label, not authenticated identity.
 - Admin audit access uses a SHA-256 token digest from environment configuration;
   the plaintext token is not stored by the API.
+- Audit event details must be a plain JSON object no larger than 8 KiB after
+  serialization; malformed or oversized payloads are rejected.
 - `ADMIN_API_TOKEN_ACTOR_ID` is a configured actor label, not independently
   verified human identity. This initial version supports one configured token,
   not per-user accounts or role-based authorization.
