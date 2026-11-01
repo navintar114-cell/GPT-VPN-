@@ -49,6 +49,27 @@ export async function recordAdminAuditEvent(pool, event) {
     throw new TypeError("Invalid admin audit event.");
   }
 
+  if (
+    Object.getPrototypeOf(details) !== Object.prototype &&
+    Object.getPrototypeOf(details) !== null
+  ) {
+    throw new TypeError("Audit details must be a plain JSON object.");
+  }
+
+  let serializedDetails;
+  try {
+    serializedDetails = JSON.stringify(details);
+  } catch {
+    throw new TypeError("Audit details must be JSON-serializable.");
+  }
+
+  if (
+    typeof serializedDetails !== "string" ||
+    Buffer.byteLength(serializedDetails, "utf8") > 8192
+  ) {
+    throw new TypeError("Audit details must serialize to at most 8192 bytes.");
+  }
+
   await pool.query(
     `INSERT INTO admin_audit_log
       (actor_id, action, target_type, target_id, request_id, details)
@@ -59,7 +80,7 @@ export async function recordAdminAuditEvent(pool, event) {
       targetType,
       targetId,
       requestId,
-      JSON.stringify(details)
+      serializedDetails
     ]
   );
 }
