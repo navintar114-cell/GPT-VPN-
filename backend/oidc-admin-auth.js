@@ -86,13 +86,16 @@ export function createOidcAdminAuthenticator({
           typeof jwk.kid !== "string" ||
           !/^[A-Za-z0-9._-]{1,128}$/.test(jwk.kid) ||
           typeof jwk.n !== "string" || typeof jwk.e !== "string" ||
-          (Array.isArray(jwk.key_ops) && !jwk.key_ops.includes("verify")) ||
+          (Array.isArray(jwk.key_ops) && (jwk.key_ops.length !== 1 || jwk.key_ops[0] !== "verify")) ||
           Object.hasOwn(jwk, "d") || Object.hasOwn(jwk, "p") ||
           Object.hasOwn(jwk, "q") || Object.hasOwn(jwk, "dp") ||
           Object.hasOwn(jwk, "dq") || Object.hasOwn(jwk, "qi")
         ) continue;
         try {
           const key = createPublicKey({ key: jwk, format: "jwk" });
+          if ((key.asymmetricKeyDetails?.modulusLength ?? 0) < 2048) {
+            throw new Error("OIDC RSA signing keys must be at least 2048 bits.");
+          }
           if (keys.has(jwk.kid)) throw new Error("Duplicate OIDC key ID.");
           keys.set(jwk.kid, key);
         } catch {
@@ -149,11 +152,14 @@ export function createOidcAdminAuthenticator({
         claims.iss !== issuer ||
         !audiences.includes(audience) ||
         (audiences.length > 1 && claims.azp !== audience) ||
+        (claims.azp !== undefined && claims.azp !== audience) ||
         typeof claims.sub !== "string" || !claims.sub.trim() || claims.sub.length > 255 ||
         !Number.isFinite(claims.exp) ||
         claims.exp <= currentTime - clockToleranceSeconds ||
         !Number.isFinite(claims.iat) ||
         claims.iat > currentTime + clockToleranceSeconds ||
+        claims.exp <= claims.iat ||
+        claims.exp - claims.iat > 86400 ||
         (claims.nbf !== undefined && (
           !Number.isFinite(claims.nbf) ||
           claims.nbf > currentTime + clockToleranceSeconds
