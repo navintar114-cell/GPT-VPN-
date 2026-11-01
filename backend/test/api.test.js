@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createServer } from "../server.js";
+import { createAdminRateLimiter } from "../admin-rate-limit.js";
 
 async function withServer(run, options = {}) {
   const server = createServer(options);
@@ -243,7 +244,7 @@ test("admin audit endpoint throttles excessive successful reads", async () => {
     }
   };
   await withServer(async (baseUrl) => {
-    for (let attempt = 1; attempt <= 30; attempt += 1) {
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
       const response = await fetch(`${baseUrl}/v1/admin/audit-log`, {
         headers: { authorization: `Bearer ${token}` }
       });
@@ -258,6 +259,7 @@ test("admin audit endpoint throttles excessive successful reads", async () => {
     assert.ok(Number(blocked.headers.get("retry-after")) > 0);
   }, {
     getPoolImpl: async () => pool,
-    adminAuthConfig: { tokenSha256, actorId: "test-admin" }
+    adminAuthConfig: { tokenSha256, actorId: "test-admin" },
+    adminRateLimiter: createAdminRateLimiter({ maxReadRequests: 2 })
   });
 });
