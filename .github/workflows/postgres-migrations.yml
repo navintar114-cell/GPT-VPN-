@@ -34,5 +34,7 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v5
-      - name: Run PostgreSQL migrations and constraint integration tests
+      - name: Install backend dependencies
+        run: npm ci --prefix backend
+      - name: Run PostgreSQL migrations and API integration tests
         run: bash backend/test/run-postgres-migration-tests.sh
