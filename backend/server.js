@@ -1,6 +1,7 @@
 import http from "node:http";
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
+import { authenticateAdmin, recordAdminAuditEvent } from "./admin-auth.js";
 
 const PORT = Number.parseInt(process.env.PORT ?? "8080", 10);
 const HOST = process.env.HOST ?? "0.0.0.0";
@@ -81,7 +82,13 @@ const verifiedServerPredicate = `
   AND NULLIF(BTRIM(p.reviewed_by), '') IS NOT NULL
 `;
 
-export function createServer({ getPoolImpl = getPool } = {}) {
+export function createServer({
+  getPoolImpl = getPool,
+  adminAuthConfig = {
+    tokenSha256: process.env.ADMIN_API_TOKEN_SHA256,
+    actorId: process.env.ADMIN_API_TOKEN_ACTOR_ID
+  }
+} = {}) {
   return http.createServer(async (req, res) => {
     const requestId = randomUUID();
 
@@ -123,6 +130,54 @@ export function createServer({ getPoolImpl = getPool } = {}) {
           scope: "control-plane-only",
           database,
           vpnDataPlane: "not-configured"
+        }, requestId);
+      }
+
+      if (req.method === "GET" && pathname === "/v1/admin/audit-log") {
+        const auth = authenticateAdmin(req, adminAuthConfig);
+        if (!auth.ok) {
+          const message = auth.status === 503
+            ? "Admin authentication is not configured."
+            : "Valid admin credentials are required.";
+          return sendJson(res, auth.status, {
+            error: { code: auth.code, message }
+          }, requestId);
+        }
+
+        const pool = await getPoolImpl();
+        if (!pool) {
+          return sendJson(res, 503, {
+            error: { code: "DATABASE_NOT_CONFIGURED", message: "The audit registry is unavailable." }
+          }, requestId);
+        }
+
+        const rawLimit = url.searchParams.get("limit");
+        const limit = rawLimit === null ? 50 : Number(rawLimit);
+        if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+          return sendJson(res, 400, {
+            error: { code: "INVALID_LIMIT", message: "limit must be an integer from 1 to 100." }
+          }, requestId);
+        }
+
+        await recordAdminAuditEvent(pool, {
+          actorId: auth.actorId,
+          action: "ADMIN_AUDIT_LOG_READ",
+          targetType: "admin_audit_log",
+          requestId
+        });
+        const result = await pool.query(
+          `SELECT id, actor_id AS "actorId", action,
+                  target_type AS "targetType", target_id AS "targetId",
+                  request_id AS "requestId", details,
+                  created_at AS "createdAt"
+           FROM admin_audit_log
+           ORDER BY created_at DESC
+           LIMIT $1`,
+          [limit]
+        );
+        return sendJson(res, 200, {
+          items: result.rows,
+          count: result.rowCount
         }, requestId);
       }
 
