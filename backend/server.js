@@ -59,8 +59,8 @@ function applyCors(req, res) {
   return true;
 }
 
-function isRateLimited(req) {
-  const ip = req.socket.remoteAddress ?? "unknown";
+function isRateLimited(req, resolveClientIp = (request) => request.socket.remoteAddress ?? "unknown") {
+  const ip = resolveClientIp(req);
   const now = Date.now();
   const current = requestsByIp.get(ip);
 
@@ -112,7 +112,7 @@ export function createServer({
         return res.end();
       }
 
-      if (isRateLimited(req)) {
+      if (isRateLimited(req, resolveClientIp)) {
         return sendJson(res, 429, {
           error: { code: "RATE_LIMITED", message: "Too many requests. Try again later." }
         }, requestId);
