@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { authenticateAdmin, recordAdminAuditEvent } from "./admin-auth.js";
 import { createAdminRateLimiter } from "./admin-rate-limit.js";
 import { createClientIpResolver } from "./client-ip.js";
+import { authorizeAdmin } from "./admin-rbac.js";
 
 const PORT = Number.parseInt(process.env.PORT ?? "8080", 10);
 const HOST = process.env.HOST ?? "0.0.0.0";
@@ -94,7 +95,9 @@ export function createServer({
   }),
   adminAuthConfig = {
     tokenSha256: process.env.ADMIN_API_TOKEN_SHA256,
-    actorId: process.env.ADMIN_API_TOKEN_ACTOR_ID
+    actorId: process.env.ADMIN_API_TOKEN_ACTOR_ID,
+    roles: (process.env.ADMIN_API_TOKEN_ROLES ?? "")
+      .split(",").map((value) => value.trim()).filter(Boolean)
   }
 } = {}) {
   return http.createServer(async (req, res) => {
@@ -173,6 +176,13 @@ export function createServer({
             : "Valid admin credentials are required.";
           return sendJson(res, auth.status, {
             error: { code: auth.code, message }
+          }, requestId);
+        }
+
+        const authorization = authorizeAdmin(auth.principal, "audit:read");
+        if (!authorization.allowed) {
+          return sendJson(res, 403, {
+            error: { code: "ADMIN_FORBIDDEN", message: "Your admin role does not permit this action." }
           }, requestId);
         }
 
