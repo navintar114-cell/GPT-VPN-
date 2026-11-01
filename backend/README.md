@@ -14,7 +14,8 @@ npm start
 The API listens on `127.0.0.1:8080` by default. Configure `HOST`, `PORT`,
 `DATABASE_URL`, `PGSSL`, and `ALLOWED_ORIGINS` through the deployment
 environment. Admin audit access additionally requires
-`ADMIN_API_TOKEN_SHA256` and `ADMIN_API_TOKEN_ACTOR_ID`. Never commit database
+`ADMIN_API_TOKEN_SHA256`, `ADMIN_API_TOKEN_ACTOR_ID`, and an explicit
+`ADMIN_API_TOKEN_ROLES` value. Never commit database
 URLs, passwords, provider credentials, admin tokens, or WireGuard private keys.
 For deployments behind a reverse proxy, set `TRUSTED_PROXY_IPS` to a
 comma-separated list of exact proxy IP addresses; leave it unset when clients
@@ -81,8 +82,9 @@ narrow permissions and audited transaction handling.
 - `GET /v1/servers` — returns only eligible verified servers.
 - `GET /v1/servers?regionId={uuid}` — filters eligible verified servers by region.
 - `GET /v1/admin/audit-log` — returns recent admin audit events; requires a
-  valid admin bearer token and migration 003. Optional `limit` must use
-  canonical decimal digits and be between 1 and 100.
+  valid admin bearer token, the `audit:read` permission, and migration 003.
+  Optional `limit` must use canonical decimal digits and be between 1 and 100.
+  Authenticated principals without permission receive `403 ADMIN_FORBIDDEN`.
 - Session creation, peer provisioning, and session revocation return
   `503 PROVISIONING_NOT_CONFIGURED` until authentication, session persistence,
   and WireGuard provisioning are implemented.
@@ -105,6 +107,10 @@ independently prove that evidence is authentic or that the reviewer is authorize
 - `reviewed_by` is currently a text label, not authenticated identity.
 - Admin audit access uses a SHA-256 token digest from environment configuration;
   the plaintext token is not stored by the API.
+- Admin authorization is deny-by-default and checks explicit roles against a
+  permission matrix: `admin` and `security_auditor` receive `audit:read`;
+  `support_readonly` receives no admin API permissions. Unknown roles or
+  malformed role configuration fail closed.
 - Admin authentication is throttled after 10 failed attempts per source IP in a
   15-minute window; successful audit-log reads are limited to 30 per source IP
   per minute. Responses include `Retry-After` when throttled.
@@ -124,9 +130,12 @@ independently prove that evidence is authentic or that the reviewer is authorize
   until a reviewed shared adapter and its integration tests are added.
 - Audit event details must be a plain JSON object no larger than 8 KiB after
   serialization; malformed or oversized payloads are rejected.
-- `ADMIN_API_TOKEN_ACTOR_ID` is a configured actor label, not independently
-  verified human identity. This initial version supports one configured token,
-  not per-user accounts or role-based authorization.
+- `ADMIN_API_TOKEN_ACTOR_ID` is a configured subject/actor label, not
+  independently verified human identity. `ADMIN_API_TOKEN_ROLES` is a
+  comma-separated list of roles assigned to that one configured token.
+  This provides a role-authorization boundary, but it is NOT per-user identity:
+  everyone holding the shared token has the same subject and roles. Do not
+  describe this as SSO, OIDC, MFA, or individual administrator accounts.
 - The audit table has triggers blocking ordinary UPDATE/DELETE/TRUNCATE statements.
   The runtime role additionally lacks those table privileges. A database
   owner or superuser can still alter or disable these protections.
@@ -166,10 +175,27 @@ accounts, roles, MFA, or a managed identity provider.
 
 ## Not implemented yet
 
-Per-user admin accounts, role-based authorization, token rotation/revocation
-management, audited provider approval and registry writes, automated provider
-verification, independent health/capacity probes, signed inventory, device key
-management, WireGuard peer provisioning/revocation, and Android integration.
+Per-user admin accounts, an OIDC/SSO identity provider, MFA, individual
+credential issuance and revocation, audited provider approval and registry
+writes, automated provider verification, independent health/capacity probes,
+signed inventory, device key management, WireGuard peer provisioning/revocation,
+and Android integration.
 
 A healthy response from `/v1/health` means only that the API process responds.
 It must never be presented as proof that a VPN tunnel is available.
+
+
+## Admin role policy
+
+Set `ADMIN_API_TOKEN_ROLES` to an explicit comma-separated role list, for
+example `security_auditor`. Supported roles are `admin`,
+`security_auditor`, and `support_readonly`. Only `admin` and
+`security_auditor` currently receive `audit:read`. An absent role list
+authenticates no privileged capability; the endpoint returns 403. Unknown
+roles make the auth configuration invalid and return 503.
+
+This PR introduces the authorization policy and enforcement point only. The
+existing single bearer token remains the authentication mechanism, so it does
+not establish individual human identity. A future identity-provider adapter
+must validate issuer, audience, signature, expiry, subject, and role claims
+before returning a principal; do not trust arbitrary identity headers.

@@ -1,14 +1,16 @@
 import { createHash, timingSafeEqual } from "node:crypto";
+import { validateAdminRoles } from "./admin-rbac.js";
 
 const SHA256_HEX = /^[a-f0-9]{64}$/i;
 
 export function authenticateAdmin(req, config = {}) {
-  const { tokenSha256, actorId } = config;
+  const { tokenSha256, actorId, roles = [] } = config;
   if (
     typeof tokenSha256 !== "string" ||
     !SHA256_HEX.test(tokenSha256) ||
     typeof actorId !== "string" ||
-    !actorId.trim()
+    !actorId.trim() ||
+    !validateAdminRoles(roles)
   ) {
     return { ok: false, status: 503, code: "ADMIN_AUTH_NOT_CONFIGURED" };
   }
@@ -25,7 +27,11 @@ export function authenticateAdmin(req, config = {}) {
     return { ok: false, status: 401, code: "ADMIN_UNAUTHORIZED" };
   }
 
-  return { ok: true, actorId: actorId.trim() };
+  return {
+    ok: true,
+    actorId: actorId.trim(),
+    principal: { subject: actorId.trim(), roles: [...new Set(roles)] }
+  };
 }
 
 export async function recordAdminAuditEvent(pool, event) {
