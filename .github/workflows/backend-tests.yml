@@ -2,9 +2,9 @@ name: Backend API Tests
 
 on:
   push:
-    branches: [main, security/provider-evidence-guard, security/admin-auth-audit-log, security/database-runtime-role-hardening, security/admin-audit-input-validation, security/admin-rate-limiting, security/trusted-proxy-rate-limit-adapter, security/admin-rbac-policy]
+    branches: [main, security/provider-evidence-guard, security/admin-auth-audit-log, security/database-runtime-role-hardening, security/admin-audit-input-validation, security/admin-rate-limiting, security/trusted-proxy-rate-limit-adapter, security/admin-rbac-policy, security/oidc-admin-identity]
   pull_request:
-    branches: [main, security/provider-evidence-guard, security/database-runtime-role-hardening, security/admin-audit-input-validation, security/admin-rate-limiting, security/trusted-proxy-rate-limit-adapter]
+    branches: [main, security/provider-evidence-guard, security/database-runtime-role-hardening, security/admin-audit-input-validation, security/admin-rate-limiting, security/trusted-proxy-rate-limit-adapter, security/admin-rbac-policy]
   workflow_dispatch:
 
 permissions:
