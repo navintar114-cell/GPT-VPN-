@@ -263,3 +263,39 @@ test("admin audit endpoint throttles excessive successful reads", async () => {
     adminRateLimiter: createAdminRateLimiter({ maxReadRequests: 2 })
   });
 });
+
+
+test("admin route supports an asynchronous shared limiter adapter", async () => {
+  const token = "test-only-admin-token";
+  const tokenSha256 = createHash("sha256").update(token).digest("hex");
+  const seen = [];
+  const limiter = {
+    async checkFailureBlocked(key) { seen.push(["check", key]); return { limited: false }; },
+    async recordFailure(key) { seen.push(["failure", key]); return { limited: false }; },
+    async recordSuccess(key) { seen.push(["success", key]); },
+    async consumeRead(key) { seen.push(["read", key]); return { limited: false }; }
+  };
+  const pool = {
+    async query(sql) {
+      return { rows: [], rowCount: sql.includes("INSERT INTO admin_audit_log") ? 1 : 0 };
+    }
+  };
+
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/v1/admin/audit-log`, {
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(response.status, 200);
+  }, {
+    getPoolImpl: async () => pool,
+    adminAuthConfig: { tokenSha256, actorId: "test-admin" },
+    adminRateLimiter: limiter,
+    resolveClientIp: () => "203.0.113.44"
+  });
+
+  assert.deepEqual(seen, [
+    ["check", "203.0.113.44"],
+    ["success", "203.0.113.44"],
+    ["read", "203.0.113.44"]
+  ]);
+});
