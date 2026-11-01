@@ -205,8 +205,8 @@ export function createServer() {
       }
 
       if (
-        (req.method === "POST" && (pathname === "/v1/sessions" || /^\\/v1\\/servers\\/[^/]+\\/peers$/.test(pathname))) ||
-        (req.method === "DELETE" && /^\\/v1\\/sessions\\/[^/]+$/.test(pathname))
+        (req.method === "POST" && (pathname === "/v1/sessions" || /^\/v1\/servers\/[^/]+\/peers$/.test(pathname))) ||
+        (req.method === "DELETE" && /^\/v1\/sessions\/[^/]+$/.test(pathname))
       ) {
         return sendJson(res, 503, {
           error: {
