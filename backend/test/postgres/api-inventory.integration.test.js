@@ -23,6 +23,7 @@ test("PostgreSQL-backed inventory exposes only active, healthy servers from evid
     fullServer: randomUUID()
   };
   let server;
+  let committed = false;
   const client = await pool.connect();
 
   try {
@@ -63,6 +64,7 @@ test("PostgreSQL-backed inventory exposes only active, healthy servers from evid
     await insertServer(ids.inactiveServer, ids.verifiedProvider, "SUSPENDED", "AVAILABLE");
     await insertServer(ids.fullServer, ids.verifiedProvider, "ACTIVE", "FULL");
     await client.query("COMMIT");
+    committed = true;
 
     server = createServer({ getPoolImpl: async () => pool });
     await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -87,12 +89,16 @@ test("PostgreSQL-backed inventory exposes only active, healthy servers from evid
         server.close((error) => error ? reject(error) : resolve())
       );
     }
-    await client.query(
+    if (committed) {
+      await client.query(
       "DELETE FROM vpn_servers WHERE id = ANY($1::uuid[])",
       [[ids.eligibleServer, ids.pendingProviderServer, ids.staleServer, ids.inactiveServer, ids.fullServer]]
     );
-    await client.query("DELETE FROM regions WHERE id = $1", [ids.region]);
-    await client.query("DELETE FROM providers WHERE id = ANY($1::uuid[])", [[ids.verifiedProvider, ids.pendingProvider]]);
+      await client.query("DELETE FROM regions WHERE id = $1", [ids.region]);
+      await client.query("DELETE FROM providers WHERE id = ANY($1::uuid[])", [[ids.verifiedProvider, ids.pendingProvider]]);
+    } else {
+      await client.query("ROLLBACK").catch(() => {});
+    }
     client.release();
     await pool.end();
   }
