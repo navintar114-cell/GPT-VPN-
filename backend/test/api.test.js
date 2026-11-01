@@ -299,3 +299,53 @@ test("admin route supports an asynchronous shared limiter adapter", async () => 
     ["read", "203.0.113.44"]
   ]);
 });
+
+
+test("admin audit endpoint denies authenticated principals without audit permission", async () => {
+  const token = "test-only-support-token";
+  const tokenSha256 = createHash("sha256").update(token).digest("hex");
+  let databaseAccesses = 0;
+  const pool = {
+    async query() {
+      databaseAccesses += 1;
+      return { rows: [], rowCount: 0 };
+    }
+  };
+
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/v1/admin/audit-log`, {
+      headers: { authorization: `Bearer ${token}` }
+    });
+    const body = await response.json();
+    assert.equal(response.status, 403);
+    assert.equal(body.error.code, "ADMIN_FORBIDDEN");
+  }, {
+    getPoolImpl: async () => pool,
+    adminAuthConfig: {
+      tokenSha256,
+      actorId: "support-user",
+      roles: ["support_readonly"]
+    }
+  });
+
+  assert.equal(databaseAccesses, 0);
+});
+
+test("admin authentication rejects unknown role configuration", async () => {
+  const token = "test-only-admin-token";
+  const tokenSha256 = createHash("sha256").update(token).digest("hex");
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/v1/admin/audit-log`, {
+      headers: { authorization: `Bearer ${token}` }
+    });
+    const body = await response.json();
+    assert.equal(response.status, 503);
+    assert.equal(body.error.code, "ADMIN_AUTH_NOT_CONFIGURED");
+  }, {
+    adminAuthConfig: {
+      tokenSha256,
+      actorId: "test-admin",
+      roles: ["superuser"]
+    }
+  });
+});
