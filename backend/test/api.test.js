@@ -349,3 +349,63 @@ test("admin authentication rejects unknown role configuration", async () => {
     }
   });
 });
+
+
+test("admin audit endpoint accepts an injected OIDC principal without static-token fallback", async () => {
+  const seen = [];
+  const pool = {
+    async query(sql, values = []) {
+      seen.push({ sql, values });
+      return {
+        rows: [],
+        rowCount: sql.includes("INSERT INTO admin_audit_log") ? 1 : 0
+      };
+    }
+  };
+
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/v1/admin/audit-log`, {
+      headers: { authorization: "Bearer signed-oidc-token" }
+    });
+    assert.equal(response.status, 200);
+  }, {
+    getPoolImpl: async () => pool,
+    adminAuthConfig: {},
+    adminIdentityProvider: async (req) => {
+      assert.equal(req.headers.authorization, "Bearer signed-oidc-token");
+      return {
+        ok: true,
+        actorId: "oidc-subject-456",
+        principal: {
+          subject: "oidc-subject-456",
+          roles: ["security_auditor"]
+        }
+      };
+    }
+  });
+
+  assert.equal(seen[0].values[0], "oidc-subject-456");
+  assert.equal(seen[0].values[1], "ADMIN_AUDIT_LOG_READ");
+});
+
+test("OIDC authentication failure does not fall back to shared bearer token", async () => {
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/v1/admin/audit-log`, {
+      headers: { authorization: "Bearer legacy-shared-token" }
+    });
+    const body = await response.json();
+    assert.equal(response.status, 401);
+    assert.equal(body.error.code, "ADMIN_UNAUTHORIZED");
+  }, {
+    adminAuthConfig: {
+      tokenSha256: createHash("sha256").update("legacy-shared-token").digest("hex"),
+      actorId: "legacy-admin",
+      roles: ["admin"]
+    },
+    adminIdentityProvider: async () => ({
+      ok: false,
+      status: 401,
+      code: "ADMIN_UNAUTHORIZED"
+    })
+  });
+});
