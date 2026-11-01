@@ -17,7 +17,7 @@ test("admin audit API writes and reads a PostgreSQL audit event; append-only tri
   const actorId = "ci-postgres-admin";
   const server = createServer({
     getPoolImpl: async () => pool,
-    adminAuthConfig: { tokenSha256, actorId }
+    adminAuthConfig: { tokenSha256, actorId, roles: ["admin"] }
   });
 
   try {
