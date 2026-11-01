@@ -13,9 +13,8 @@ npm start
 
 The API listens on `127.0.0.1:8080` by default. Configure `HOST`, `PORT`,
 `DATABASE_URL`, `PGSSL`, and `ALLOWED_ORIGINS` through the deployment
-environment. Admin audit access additionally requires
-`ADMIN_API_TOKEN_SHA256`, `ADMIN_API_TOKEN_ACTOR_ID`, and an explicit
-`ADMIN_API_TOKEN_ROLES` value. Never commit database
+environment. Admin audit access uses either the legacy shared-token mode or
+explicit OIDC JWT mode. Never commit database
 URLs, passwords, provider credentials, admin tokens, or WireGuard private keys.
 For deployments behind a reverse proxy, set `TRUSTED_PROXY_IPS` to a
 comma-separated list of exact proxy IP addresses; leave it unset when clients
@@ -105,8 +104,11 @@ independently prove that evidence is authentic or that the reviewer is authorize
   marked VERIFIED; the database constraint and public inventory query both
   enforce the required fields.
 - `reviewed_by` is currently a text label, not authenticated identity.
-- Admin audit access uses a SHA-256 token digest from environment configuration;
-  the plaintext token is not stored by the API.
+- Admin audit access supports a legacy shared-token mode and an explicit OIDC
+  JWT verification mode. OIDC mode validates RS256 signatures against a
+  configured HTTPS JWKS endpoint, exact issuer, audience, expiry, not-before,
+  issued-at, subject, and known role claims. Unknown or invalid credentials fail
+  closed.
 - Admin authorization is deny-by-default and checks explicit roles against a
   permission matrix: `admin` and `security_auditor` receive `audit:read`;
   `support_readonly` receives no admin API permissions. Unknown roles or
@@ -130,12 +132,10 @@ independently prove that evidence is authentic or that the reviewer is authorize
   until a reviewed shared adapter and its integration tests are added.
 - Audit event details must be a plain JSON object no larger than 8 KiB after
   serialization; malformed or oversized payloads are rejected.
-- `ADMIN_API_TOKEN_ACTOR_ID` is a configured subject/actor label, not
+- Legacy `ADMIN_API_TOKEN_ACTOR_ID` is a configured subject/actor label, not
   independently verified human identity. `ADMIN_API_TOKEN_ROLES` is a
-  comma-separated list of roles assigned to that one configured token.
-  This provides a role-authorization boundary, but it is NOT per-user identity:
-  everyone holding the shared token has the same subject and roles. Do not
-  describe this as SSO, OIDC, MFA, or individual administrator accounts.
+  comma-separated list of roles assigned to that one shared token. Everyone
+  holding it has the same subject and permissions.
 - The audit table has triggers blocking ordinary UPDATE/DELETE/TRUNCATE statements.
   The runtime role additionally lacks those table privileges. A database
   owner or superuser can still alter or disable these protections.
@@ -175,9 +175,10 @@ accounts, roles, MFA, or a managed identity provider.
 
 ## Not implemented yet
 
-Per-user admin accounts, an OIDC/SSO identity provider, MFA, individual
-credential issuance and revocation, audited provider approval and registry
-writes, automated provider verification, independent health/capacity probes,
+OIDC authorization-code login/client integration, provider discovery and
+registration automation, provider-side MFA policy enforcement, per-user
+credential lifecycle/revocation management, audited provider approval and
+registry writes, automated provider verification, independent health/capacity probes,
 signed inventory, device key management, WireGuard peer provisioning/revocation,
 and Android integration.
 
@@ -199,3 +200,41 @@ existing single bearer token remains the authentication mechanism, so it does
 not establish individual human identity. A future identity-provider adapter
 must validate issuer, audience, signature, expiry, subject, and role claims
 before returning a principal; do not trust arbitrary identity headers.
+
+
+## OIDC administrator authentication
+
+The API can validate access tokens issued by an independently operated OIDC
+identity provider. It does not host a login page or implement an OAuth
+authorization-code flow. A trusted identity provider must issue signed JWT
+access tokens and enforce its own account lifecycle and any required MFA policy.
+
+To enable OIDC mode, configure these non-secret deployment settings:
+
+- `ADMIN_AUTH_MODE=oidc` — explicitly selects OIDC. There is no fallback to
+  the legacy shared token when OIDC mode is selected.
+- `ADMIN_OIDC_ISSUER` — exact HTTPS issuer identifier; it must match the JWT
+  `iss` claim exactly.
+- `ADMIN_OIDC_AUDIENCE` — exact API audience expected in the JWT `aud` claim.
+- `ADMIN_OIDC_JWKS_URI` — HTTPS URL for the identity provider's public signing
+  keys. Configure this URL from the provider's trusted documentation.
+- `ADMIN_OIDC_ROLES_CLAIM=roles` — optional top-level JWT claim containing
+  supported role names. Supported roles are `admin`, `security_auditor`,
+  and `support_readonly`.
+
+The verifier accepts RS256 only, rejects unknown key IDs after one JWKS refresh,
+and caches validated public keys for up to five minutes. It bounds token and
+JWKS sizes, requires a non-empty subject, and checks `iss`, `aud`, `exp`,
+`iat`, and optional `nbf` with a maximum configurable-in-code clock
+tolerance of 60 seconds. Only known role names are accepted; an empty role list
+authenticates the subject but grants no admin permission. The JWKS endpoint must
+be reachable over HTTPS. Never trust role or identity headers supplied by a
+client.
+
+This is an API-side JWT verifier, not a complete OIDC client. It does not
+perform discovery, redirect-based login, token exchange, refresh-token
+handling, logout, MFA enrollment, or provider-side account administration.
+The operator must independently verify the issuer, audience, JWKS URL, role
+claim mapping, token type, and provider security configuration before enabling
+OIDC mode. Do not put signing private keys or client secrets in this repository
+or in chat.
