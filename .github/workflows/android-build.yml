@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, security/provider-evidence-guard]
   workflow_dispatch:
 
 permissions:
