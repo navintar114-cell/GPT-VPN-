@@ -43,10 +43,13 @@ export function createOidcAdminAuthenticator({
     throw new TypeError("OIDC JWKS URL must be a valid HTTPS URL.");
   }
 
+  if (parsedJwksUrl.protocol !== "https:") {
+    throw new TypeError("OIDC JWKS URL must use HTTPS.");
+  }
+
   if (
     typeof issuer !== "string" || !issuer.startsWith("https://") ||
     typeof audience !== "string" || !audience.trim() ||
-    parsedJwksUrl.protocol !== "https:" ||
     typeof fetchImpl !== "function" ||
     typeof now !== "function" ||
     typeof rolesClaim !== "string" || !/^[A-Za-z0-9_.-]{1,80}$/.test(rolesClaim) ||
