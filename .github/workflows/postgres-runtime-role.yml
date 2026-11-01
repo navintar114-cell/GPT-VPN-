@@ -4,7 +4,7 @@ on:
   push:
     branches: [security/database-runtime-role-hardening]
   pull_request:
-    branches: [test/postgres-admin-audit-integration]
+    branches: [test/postgres-admin-audit-integration, security/database-runtime-role-hardening]
   workflow_dispatch:
 
 permissions:
