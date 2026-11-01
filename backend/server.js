@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { authenticateAdmin, recordAdminAuditEvent } from "./admin-auth.js";
 import { createAdminRateLimiter } from "./admin-rate-limit.js";
+import { createClientIpResolver } from "./client-ip.js";
 
 const PORT = Number.parseInt(process.env.PORT ?? "8080", 10);
 const HOST = process.env.HOST ?? "0.0.0.0";
@@ -87,6 +88,10 @@ const verifiedServerPredicate = `
 export function createServer({
   getPoolImpl = getPool,
   adminRateLimiter = createAdminRateLimiter(),
+  resolveClientIp = createClientIpResolver({
+    trustedProxyIps: (process.env.TRUSTED_PROXY_IPS ?? "")
+      .split(",").map((value) => value.trim()).filter(Boolean)
+  }),
   adminAuthConfig = {
     tokenSha256: process.env.ADMIN_API_TOKEN_SHA256,
     actorId: process.env.ADMIN_API_TOKEN_ACTOR_ID
@@ -137,9 +142,10 @@ export function createServer({
       }
 
       if (req.method === "GET" && pathname === "/v1/admin/audit-log") {
-        // Use the socket peer address only; never trust arbitrary X-Forwarded-For.
-        const clientIp = req.socket.remoteAddress ?? "unknown";
-        const failureBlock = adminRateLimiter.checkFailureBlocked(clientIp);
+        // Forwarded client IPs are considered only when the socket peer is
+        // explicitly listed in TRUSTED_PROXY_IPS.
+        const clientIp = resolveClientIp(req);
+        const failureBlock = await adminRateLimiter.checkFailureBlocked(clientIp);
         if (failureBlock.limited) {
           return sendJson(res, 429, {
             error: {
@@ -152,7 +158,7 @@ export function createServer({
         const auth = authenticateAdmin(req, adminAuthConfig);
         if (!auth.ok) {
           if (auth.status === 401) {
-            const failure = adminRateLimiter.recordFailure(clientIp);
+            const failure = await adminRateLimiter.recordFailure(clientIp);
             if (failure.limited) {
               return sendJson(res, 429, {
                 error: {
@@ -170,8 +176,8 @@ export function createServer({
           }, requestId);
         }
 
-        adminRateLimiter.recordSuccess(clientIp);
-        const readLimit = adminRateLimiter.consumeRead(clientIp);
+        await adminRateLimiter.recordSuccess(clientIp);
+        const readLimit = await adminRateLimiter.consumeRead(clientIp);
         if (readLimit.limited) {
           return sendJson(res, 429, {
             error: {
