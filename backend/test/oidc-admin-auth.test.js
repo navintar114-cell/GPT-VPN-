@@ -93,6 +93,18 @@ test("rejects wrong issuer, audience, expiry, and future not-before claims", asy
   }
 });
 
+test("rejects excessive token lifetime and mismatched authorized party", async () => {
+  const { authenticate } = createAuthenticator();
+  assert.equal(
+    (await authenticate(request(makeToken({ exp: NOW + 86401 })))).ok,
+    false
+  );
+  assert.equal(
+    (await authenticate(request(makeToken({ aud: [AUDIENCE, "other"], azp: "other" })))).ok,
+    false
+  );
+});
+
 test("rejects unsupported algorithms and invalid signatures", async () => {
   const { authenticate } = createAuthenticator();
   assert.equal(
