@@ -76,6 +76,9 @@ const verifiedServerPredicate = `
   AND s.capacity_state = 'AVAILABLE'
   AND p.status = 'VERIFIED'
   AND p.permission_verified_at IS NOT NULL
+  AND NULLIF(BTRIM(p.permission_evidence_url), '') IS NOT NULL
+  AND p.reviewed_at IS NOT NULL
+  AND NULLIF(BTRIM(p.reviewed_by), '') IS NOT NULL
 `;
 
 export function createServer() {
@@ -202,8 +205,8 @@ export function createServer() {
       }
 
       if (
-        (req.method === "POST" && (pathname === "/v1/sessions" || /^\/v1\/servers\/[^/]+\/peers$/.test(pathname))) ||
-        (req.method === "DELETE" && /^\/v1\/sessions\/[^/]+$/.test(pathname))
+        (req.method === "POST" && (pathname === "/v1/sessions" || /^\\/v1\\/servers\\/[^/]+\\/peers$/.test(pathname))) ||
+        (req.method === "DELETE" && /^\\/v1\\/sessions\\/[^/]+$/.test(pathname))
       ) {
         return sendJson(res, 503, {
           error: {
