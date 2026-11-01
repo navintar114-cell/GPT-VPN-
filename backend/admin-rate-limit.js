@@ -77,6 +77,12 @@ export function createAdminRateLimiter({
     if (!result.entry) {
       return { limited: true, retryAfterSeconds: result.retryAfter };
     }
+    // Increment-if-below-threshold is one synchronous operation here.
+    // A shared adapter must implement this operation atomically (for example,
+    // with a Redis script or a database transaction).
+    if (result.entry.count >= maxFailedAttempts) {
+      return blockedResult(result.entry, result.currentTime);
+    }
     result.entry.count += 1;
     return { limited: false };
   }
