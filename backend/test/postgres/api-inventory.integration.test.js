@@ -91,9 +91,9 @@ test("PostgreSQL-backed inventory exposes only active, healthy servers from evid
     }
     if (committed) {
       await client.query(
-      "DELETE FROM vpn_servers WHERE id = ANY($1::uuid[])",
-      [[ids.eligibleServer, ids.pendingProviderServer, ids.staleServer, ids.inactiveServer, ids.fullServer]]
-    );
+        "DELETE FROM vpn_servers WHERE id = ANY($1::uuid[])",
+        [[ids.eligibleServer, ids.pendingProviderServer, ids.staleServer, ids.inactiveServer, ids.fullServer]]
+      );
       await client.query("DELETE FROM regions WHERE id = $1", [ids.region]);
       await client.query("DELETE FROM providers WHERE id = ANY($1::uuid[])", [[ids.verifiedProvider, ids.pendingProvider]]);
     } else {
