@@ -1,0 +1,59 @@
+name: PostgreSQL Runtime Role Hardening Tests
+
+on:
+  push:
+    branches: [security/database-runtime-role-hardening]
+  pull_request:
+    branches: [test/postgres-admin-audit-integration]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-runtime-role:
+    name: PostgreSQL least-privilege role integration tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: gptvpn_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d gptvpn_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/gptvpn_test
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Install backend dependencies
+        run: npm ci --prefix backend
+      - name: Apply migrations and verify idempotency
+        run: |
+          set -euo pipefail
+          for migration in \
+            backend/migrations/001_initial_registry.sql \
+            backend/migrations/002_provider_evidence_guard.sql \
+            backend/migrations/003_admin_audit_log.sql \
+            backend/migrations/004_runtime_role_hardening.sql
+          do
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
+          done
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/migrations/004_runtime_role_hardening.sql
+      - name: Run PostgreSQL-backed security integration tests
+        run: |
+          node --test \
+            backend/test/postgres/admin-audit.integration.test.js \
+            backend/test/postgres/database-role.integration.test.js
