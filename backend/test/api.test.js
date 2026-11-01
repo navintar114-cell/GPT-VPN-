@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { createServer } from "../server.js";
 
 async function withServer(run, options = {}) {
@@ -99,4 +100,79 @@ test("unknown routes return 404", async () => {
     const response = await fetch(`${baseUrl}/not-a-route`);
     assert.equal(response.status, 404);
   });
+});
+
+test("admin audit log denies requests without credentials", async () => {
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/v1/admin/audit-log`);
+    const body = await response.json();
+    assert.equal(response.status, 503);
+    assert.equal(body.error.code, "ADMIN_AUTH_NOT_CONFIGURED");
+  });
+});
+
+test("admin audit log rejects an incorrect bearer token", async () => {
+  const token = "test-only-admin-token";
+  const tokenSha256 = createHash("sha256").update(token).digest("hex");
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/v1/admin/audit-log`, {
+      headers: { authorization: "Bearer incorrect-token" }
+    });
+    const body = await response.json();
+    assert.equal(response.status, 401);
+    assert.equal(body.error.code, "ADMIN_UNAUTHORIZED");
+  }, { adminAuthConfig: { tokenSha256, actorId: "test-admin" } });
+});
+
+test("admin audit log authenticates, records the read, and uses a bounded limit", async () => {
+  const token = "test-only-admin-token";
+  const tokenSha256 = createHash("sha256").update(token).digest("hex");
+  const queries = [];
+  const pool = {
+    async query(sql, values = []) {
+      queries.push({ sql, values });
+      if (sql.includes("INSERT INTO admin_audit_log")) {
+        return { rows: [], rowCount: 1 };
+      }
+      return { rows: [{ id: "1", actorId: "test-admin", action: "ADMIN_AUDIT_LOG_READ" }], rowCount: 1 };
+    }
+  };
+
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/v1/admin/audit-log?limit=10`, {
+      headers: { authorization: `Bearer ${token}` }
+    });
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(body.count, 1);
+    assert.equal(body.items[0].action, "ADMIN_AUDIT_LOG_READ");
+  }, {
+    getPoolImpl: async () => pool,
+    adminAuthConfig: { tokenSha256, actorId: "test-admin" }
+  });
+
+  assert.equal(queries.length, 2);
+  assert.match(queries[0].sql, /INSERT INTO admin_audit_log/);
+  assert.equal(queries[0].values[0], "test-admin");
+  assert.equal(queries[0].values[1], "ADMIN_AUDIT_LOG_READ");
+  assert.match(queries[1].sql, /ORDER BY created_at DESC/);
+  assert.deepEqual(queries[1].values, [10]);
+});
+
+test("admin audit log rejects out-of-range limits before database access", async () => {
+  const token = "test-only-admin-token";
+  const tokenSha256 = createHash("sha256").update(token).digest("hex");
+  let queryCount = 0;
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/v1/admin/audit-log?limit=1000`, {
+      headers: { authorization: `Bearer ${token}` }
+    });
+    const body = await response.json();
+    assert.equal(response.status, 400);
+    assert.equal(body.error.code, "INVALID_LIMIT");
+  }, {
+    getPoolImpl: async () => ({ async query() { queryCount += 1; return { rows: [], rowCount: 0 }; } }),
+    adminAuthConfig: { tokenSha256, actorId: "test-admin" }
+  });
+  assert.equal(queryCount, 0);
 });
