@@ -23,10 +23,11 @@ test("PostgreSQL-backed inventory exposes only active, healthy servers from evid
     fullServer: randomUUID()
   };
   let server;
+  const client = await pool.connect();
 
   try {
-    await pool.query("BEGIN");
-    await pool.query(
+    await client.query("BEGIN");
+    await client.query(
       `INSERT INTO providers (
         id, display_name, provider_type, status, permission_verified_at,
         permission_evidence_url, reviewed_at, reviewed_by
@@ -34,19 +35,19 @@ test("PostgreSQL-backed inventory exposes only active, healthy servers from evid
                 'https://evidence.invalid/ci-permission', NOW(), 'ci-integration-reviewer')`,
       [ids.verifiedProvider]
     );
-    await pool.query(
+    await client.query(
       `INSERT INTO providers (id, display_name, provider_type, status)
        VALUES ($1, 'CI pending provider', 'PARTNER', 'PENDING')`,
       [ids.pendingProvider]
     );
-    await pool.query(
+    await client.query(
       `INSERT INTO regions (id, country_code, name, continent)
        VALUES ($1, 'ZZ', 'CI Integration Region', 'Test')`,
       [ids.region]
     );
 
     const insertServer = async (id, providerId, status, capacity, healthSql = "NOW()") => {
-      await pool.query(
+      await client.query(
         `INSERT INTO vpn_servers (
           id, provider_id, region_id, provider_type, wireguard_endpoint,
           wireguard_public_key, capacity_state, status, last_health_check, verified_at
@@ -61,7 +62,7 @@ test("PostgreSQL-backed inventory exposes only active, healthy servers from evid
     await insertServer(ids.staleServer, ids.verifiedProvider, "ACTIVE", "AVAILABLE", "NOW() - INTERVAL '6 minutes'");
     await insertServer(ids.inactiveServer, ids.verifiedProvider, "SUSPENDED", "AVAILABLE");
     await insertServer(ids.fullServer, ids.verifiedProvider, "ACTIVE", "FULL");
-    await pool.query("COMMIT");
+    await client.query("COMMIT");
 
     server = createServer({ getPoolImpl: async () => pool });
     await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -86,12 +87,13 @@ test("PostgreSQL-backed inventory exposes only active, healthy servers from evid
         server.close((error) => error ? reject(error) : resolve())
       );
     }
-    await pool.query(
+    await client.query(
       "DELETE FROM vpn_servers WHERE id = ANY($1::uuid[])",
       [[ids.eligibleServer, ids.pendingProviderServer, ids.staleServer, ids.inactiveServer, ids.fullServer]]
     );
-    await pool.query("DELETE FROM regions WHERE id = $1", [ids.region]);
-    await pool.query("DELETE FROM providers WHERE id = ANY($1::uuid[])", [[ids.verifiedProvider, ids.pendingProvider]]);
+    await client.query("DELETE FROM regions WHERE id = $1", [ids.region]);
+    await client.query("DELETE FROM providers WHERE id = ANY($1::uuid[])", [[ids.verifiedProvider, ids.pendingProvider]]);
+    client.release();
     await pool.end();
   }
 });
