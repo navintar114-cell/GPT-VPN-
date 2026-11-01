@@ -1,0 +1,40 @@
+name: PostgreSQL Migration Tests
+
+on:
+  push:
+    branches: [main, test/postgres-provider-evidence-migrations]
+  pull_request:
+    branches: [main, security/provider-evidence-guard]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-migrations:
+    name: PostgreSQL provider evidence migration tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: gptvpn_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d gptvpn_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/gptvpn_test
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+      - name: Install backend dependencies
+        run: npm ci --prefix backend
+      - name: Run PostgreSQL migrations and API integration tests
+        run: bash backend/test/run-postgres-migration-tests.sh
