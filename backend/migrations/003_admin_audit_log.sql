@@ -34,3 +34,7 @@ DROP TRIGGER IF EXISTS admin_audit_log_no_mutation ON admin_audit_log;
 CREATE TRIGGER admin_audit_log_no_mutation
   BEFORE UPDATE OR DELETE ON admin_audit_log
   FOR EACH ROW EXECUTE FUNCTION prevent_admin_audit_log_mutation();
+
+CREATE TRIGGER admin_audit_log_no_truncate
+  BEFORE TRUNCATE ON admin_audit_log
+  FOR EACH STATEMENT EXECUTE FUNCTION prevent_admin_audit_log_mutation();
