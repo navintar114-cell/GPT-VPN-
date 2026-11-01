@@ -102,6 +102,13 @@ independently prove that evidence is authentic or that the reviewer is authorize
 - `reviewed_by` is currently a text label, not authenticated identity.
 - Admin audit access uses a SHA-256 token digest from environment configuration;
   the plaintext token is not stored by the API.
+- Admin authentication is throttled after 10 failed attempts per source IP in a
+  15-minute window; successful audit-log reads are limited to 30 per source IP
+  per minute. Responses include `Retry-After` when throttled.
+- Admin rate-limit counters are bounded in-memory process state. They reset on
+  process restart and are not shared across instances; they are a defense-in-depth
+  control, not a substitute for gateway/WAF rate limiting. The API uses the socket
+  peer address and does not trust arbitrary `X-Forwarded-For` values.
 - Audit event details must be a plain JSON object no larger than 8 KiB after
   serialization; malformed or oversized payloads are rejected.
 - `ADMIN_API_TOKEN_ACTOR_ID` is a configured actor label, not independently

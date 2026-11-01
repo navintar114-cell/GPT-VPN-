@@ -2,9 +2,9 @@ name: PostgreSQL Runtime Role Hardening Tests
 
 on:
   push:
-    branches: [security/database-runtime-role-hardening, security/admin-audit-input-validation]
+    branches: [security/database-runtime-role-hardening, security/admin-audit-input-validation, security/admin-rate-limiting]
   pull_request:
-    branches: [test/postgres-admin-audit-integration, security/database-runtime-role-hardening]
+    branches: [test/postgres-admin-audit-integration, security/database-runtime-role-hardening, security/admin-audit-input-validation, security/admin-rate-limiting]
   workflow_dispatch:
 
 permissions:
