@@ -212,3 +212,52 @@ test("admin audit log accepts canonical decimal limits only", async () => {
 
   assert.deepEqual(accepted, [1, 10, 100]);
 });
+
+
+test("admin authentication throttles repeated failed credentials", async () => {
+  const tokenSha256 = createHash("sha256").update("correct-test-token").digest("hex");
+  await withServer(async (baseUrl) => {
+    for (let attempt = 1; attempt <= 10; attempt += 1) {
+      const response = await fetch(`${baseUrl}/v1/admin/audit-log`, {
+        headers: { authorization: "Bearer invalid-test-value" }
+      });
+      assert.equal(response.status, 401);
+    }
+    const blocked = await fetch(`${baseUrl}/v1/admin/audit-log`, {
+      headers: { authorization: "Bearer invalid-test-value" }
+    });
+    const body = await blocked.json();
+    assert.equal(blocked.status, 429);
+    assert.equal(body.error.code, "ADMIN_AUTH_RATE_LIMITED");
+    assert.ok(Number(blocked.headers.get("retry-after")) > 0);
+  }, { adminAuthConfig: { tokenSha256, actorId: "test-admin" } });
+});
+
+test("admin audit endpoint throttles excessive successful reads", async () => {
+  const token = "test-only-admin-token";
+  const tokenSha256 = createHash("sha256").update(token).digest("hex");
+  const pool = {
+    async query(sql) {
+      if (sql.includes("INSERT INTO admin_audit_log")) return { rows: [], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    }
+  };
+  await withServer(async (baseUrl) => {
+    for (let attempt = 1; attempt <= 30; attempt += 1) {
+      const response = await fetch(`${baseUrl}/v1/admin/audit-log`, {
+        headers: { authorization: `Bearer ${token}` }
+      });
+      assert.equal(response.status, 200);
+    }
+    const blocked = await fetch(`${baseUrl}/v1/admin/audit-log`, {
+      headers: { authorization: `Bearer ${token}` }
+    });
+    const body = await blocked.json();
+    assert.equal(blocked.status, 429);
+    assert.equal(body.error.code, "ADMIN_READ_RATE_LIMITED");
+    assert.ok(Number(blocked.headers.get("retry-after")) > 0);
+  }, {
+    getPoolImpl: async () => pool,
+    adminAuthConfig: { tokenSha256, actorId: "test-admin" }
+  });
+});
