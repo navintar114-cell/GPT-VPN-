@@ -45,11 +45,11 @@ been verified.
   and WireGuard provisioning are implemented.
 
 A server is eligible only if its status is ACTIVE, it has a verification
- timestamp, its provider is VERIFIED, the provider has a permission verification
- timestamp, non-empty permission evidence URL, review timestamp and non-empty
- reviewer label, its capacity is AVAILABLE, and its health check is no older than
- five minutes. These fields establish metadata completeness only; they do not
- independently prove that evidence is authentic or that the reviewer is authorized.
+timestamp, its provider is VERIFIED, the provider has a permission verification
+timestamp, non-empty permission evidence URL, review timestamp and non-empty
+reviewer label, its capacity is AVAILABLE, and its health check is no older than
+five minutes. These fields establish metadata completeness only; they do not
+independently prove that evidence is authentic or that the reviewer is authorized.
 
 ## Security boundaries
 
@@ -65,7 +65,7 @@ A server is eligible only if its status is ACTIVE, it has a verification
 - `ADMIN_API_TOKEN_ACTOR_ID` is a configured actor label, not independently
   verified human identity. This initial version supports one configured token,
   not per-user accounts or role-based authorization.
-- The audit table has a trigger blocking ordinary UPDATE/DELETE statements.
+- The audit table has triggers blocking ordinary UPDATE/DELETE/TRUNCATE statements.
   A database owner or superuser can still alter or disable this protection.
 - Provider approvals and registry writes remain disabled. Future mutations must
   authenticate, authorize the specific action, and write an audit event in the
