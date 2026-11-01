@@ -122,7 +122,7 @@ test("admin audit log rejects an incorrect bearer token", async () => {
     const body = await response.json();
     assert.equal(response.status, 401);
     assert.equal(body.error.code, "ADMIN_UNAUTHORIZED");
-  }, { adminAuthConfig: { tokenSha256, actorId: "test-admin" } });
+  }, { adminAuthConfig: { tokenSha256, actorId: "test-admin", roles: ["admin"] } });
 });
 
 test("admin audit log authenticates, records the read, and uses a bounded limit", async () => {
@@ -149,7 +149,7 @@ test("admin audit log authenticates, records the read, and uses a bounded limit"
     assert.equal(body.items[0].action, "ADMIN_AUDIT_LOG_READ");
   }, {
     getPoolImpl: async () => pool,
-    adminAuthConfig: { tokenSha256, actorId: "test-admin" }
+    adminAuthConfig: { tokenSha256, actorId: "test-admin", roles: ["admin"] }
   });
 
   assert.equal(queries.length, 2);
@@ -173,7 +173,7 @@ test("admin audit log rejects out-of-range limits before database access", async
     assert.equal(body.error.code, "INVALID_LIMIT");
   }, {
     getPoolImpl: async () => ({ async query() { queryCount += 1; return { rows: [], rowCount: 0 }; } }),
-    adminAuthConfig: { tokenSha256, actorId: "test-admin" }
+    adminAuthConfig: { tokenSha256, actorId: "test-admin", roles: ["admin"] }
   });
   assert.equal(queryCount, 0);
 });
@@ -208,7 +208,7 @@ test("admin audit log accepts canonical decimal limits only", async () => {
     }
   }, {
     getPoolImpl: async () => pool,
-    adminAuthConfig: { tokenSha256, actorId: "test-admin" }
+    adminAuthConfig: { tokenSha256, actorId: "test-admin", roles: ["admin"] }
   });
 
   assert.deepEqual(accepted, [1, 10, 100]);
@@ -231,7 +231,7 @@ test("admin authentication throttles repeated failed credentials", async () => {
     assert.equal(blocked.status, 429);
     assert.equal(body.error.code, "ADMIN_AUTH_RATE_LIMITED");
     assert.ok(Number(blocked.headers.get("retry-after")) > 0);
-  }, { adminAuthConfig: { tokenSha256, actorId: "test-admin" } });
+  }, { adminAuthConfig: { tokenSha256, actorId: "test-admin", roles: ["admin"] } });
 });
 
 test("admin audit endpoint throttles excessive successful reads", async () => {
@@ -259,7 +259,7 @@ test("admin audit endpoint throttles excessive successful reads", async () => {
     assert.ok(Number(blocked.headers.get("retry-after")) > 0);
   }, {
     getPoolImpl: async () => pool,
-    adminAuthConfig: { tokenSha256, actorId: "test-admin" },
+    adminAuthConfig: { tokenSha256, actorId: "test-admin", roles: ["admin"] },
     adminRateLimiter: createAdminRateLimiter({ maxReadRequests: 2 })
   });
 });
@@ -288,7 +288,7 @@ test("admin route supports an asynchronous shared limiter adapter", async () => 
     assert.equal(response.status, 200);
   }, {
     getPoolImpl: async () => pool,
-    adminAuthConfig: { tokenSha256, actorId: "test-admin" },
+    adminAuthConfig: { tokenSha256, actorId: "test-admin", roles: ["admin"] },
     adminRateLimiter: limiter,
     resolveClientIp: () => "203.0.113.44"
   });
