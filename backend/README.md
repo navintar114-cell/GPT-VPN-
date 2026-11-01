@@ -11,15 +11,14 @@ npm test
 npm start
 ```
 
-The API listens on `127.0.0.1:8080` by default. Set `HOST`, `PORT`,
-`DATABASE_URL`, `PGSSL`, and `ALLOWED_ORIGINS` through the deployment
-environment when needed. Never commit real database URLs, passwords, provider
+The API listens on `127.0.0.1:8080` by default. Set `HOST`, `PORT`, `DATABASE_URL`, `PGSSL`, and `ALLOWED_ORIGINS` through the deployment environment when needed. Admin audit access additionally requires `ADMIN_API_TOKEN_SHA256` and `ADMIN_API_TOKEN_ACTOR_ID`. Never commit real credentials or tokens. Never commit real database URLs, passwords, provider
 credentials, or WireGuard private keys.
 
 ## PostgreSQL setup
 
 Apply `migrations/001_initial_registry.sql` and then
-`migrations/002_provider_evidence_guard.sql` to a dedicated PostgreSQL database
+`migrations/002_provider_evidence_guard.sql`, and then
+`migrations/003_admin_audit_log.sql` to a dedicated PostgreSQL database
 using a trusted migration process. Apply each migration once, in numeric order.
 The API does not automatically run schema changes at startup. Configure
 `DATABASE_URL` in the hosting provider's secret environment settings.
@@ -34,7 +33,7 @@ been verified.
   it does not test VPN tunnel readiness.
 - `GET /v1/regions` — returns only regions with eligible verified servers.
 - `GET /v1/servers` — returns only eligible verified servers.
-- `GET /v1/servers?regionId={uuid}` — filters eligible servers by region.
+- `GET /v1/servers?regionId={uuid}` — filters eligible servers by region.\n- `GET /v1/admin/audit-log` — returns recent admin audit events; requires a valid admin bearer token and the audit migration. Optional `limit` is restricted to 1–100.
 - Session creation, peer provisioning, and session revocation return
   `503 PROVISIONING_NOT_CONFIGURED` until authentication, session persistence,
   and WireGuard provisioning are implemented.
@@ -75,3 +74,25 @@ integration.
 
 A healthy response from `/v1/health` means only that the API process responds.
 It must never be presented as proof that a VPN tunnel is available.
+
+
+## Admin audit access
+
+Generate a high-entropy token locally; do not send it in chat or commit it:
+
+```sh
+ADMIN_TOKEN="$(openssl rand -hex 32)"
+printf '%s' "$ADMIN_TOKEN" | sha256sum
+```
+
+Store only the resulting 64-character SHA-256 hex digest as
+`ADMIN_API_TOKEN_SHA256` in the hosting provider's secret settings, and set
+`ADMIN_API_TOKEN_ACTOR_ID` to a non-secret administrator label. Keep the
+plaintext token in a secure password manager and send it only over HTTPS as
+`Authorization: Bearer <token>`. Rotate the token by generating a new one and
+replacing the digest. Never paste the token or digest into a public issue.
+
+The current endpoint is read-only apart from recording the audit-log read
+itself. It does not create providers, approve evidence, provision peers, or
+change registry records. A single configured token is not a substitute for
+individual accounts, roles, MFA, or a managed identity provider.
