@@ -144,18 +144,18 @@ export function createServer({
           }, requestId);
         }
 
-        const pool = await getPoolImpl();
-        if (!pool) {
-          return sendJson(res, 503, {
-            error: { code: "DATABASE_NOT_CONFIGURED", message: "The audit registry is unavailable." }
-          }, requestId);
-        }
-
         const rawLimit = url.searchParams.get("limit");
         const limit = rawLimit === null ? 50 : Number(rawLimit);
         if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
           return sendJson(res, 400, {
             error: { code: "INVALID_LIMIT", message: "limit must be an integer from 1 to 100." }
+          }, requestId);
+        }
+
+        const pool = await getPoolImpl();
+        if (!pool) {
+          return sendJson(res, 503, {
+            error: { code: "DATABASE_NOT_CONFIGURED", message: "The audit registry is unavailable." }
           }, requestId);
         }
 
