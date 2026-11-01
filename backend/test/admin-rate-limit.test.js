@@ -9,6 +9,8 @@ test("failure counter blocks only after threshold and expires", () => {
   limiter.recordFailure("client-a");
   limiter.recordFailure("client-a");
   assert.equal(limiter.checkFailureBlocked("client-a").limited, true);
+  const concurrentOverflow = limiter.recordFailure("client-a");
+  assert.equal(concurrentOverflow.limited, true);
   time += 5001;
   assert.equal(limiter.checkFailureBlocked("client-a").limited, false);
 });
