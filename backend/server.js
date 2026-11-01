@@ -76,9 +76,12 @@ const verifiedServerPredicate = `
   AND s.capacity_state = 'AVAILABLE'
   AND p.status = 'VERIFIED'
   AND p.permission_verified_at IS NOT NULL
+  AND NULLIF(BTRIM(p.permission_evidence_url), '') IS NOT NULL
+  AND p.reviewed_at IS NOT NULL
+  AND NULLIF(BTRIM(p.reviewed_by), '') IS NOT NULL
 `;
 
-export function createServer() {
+export function createServer({ getPoolImpl = getPool } = {}) {
   return http.createServer(async (req, res) => {
     const requestId = randomUUID();
 
@@ -105,7 +108,7 @@ export function createServer() {
 
       if (req.method === "GET" && pathname === "/v1/health") {
         let database = "not-configured";
-        const pool = await getPool();
+        const pool = await getPoolImpl();
         if (pool) {
           try {
             await pool.query("SELECT 1");
@@ -124,7 +127,7 @@ export function createServer() {
       }
 
       if (req.method === "GET" && pathname === "/v1/regions") {
-        const pool = await getPool();
+        const pool = await getPoolImpl();
         if (!pool) {
           return sendJson(res, 200, {
             items: [],
@@ -153,7 +156,7 @@ export function createServer() {
       }
 
       if (req.method === "GET" && pathname === "/v1/servers") {
-        const pool = await getPool();
+        const pool = await getPoolImpl();
         if (!pool) {
           return sendJson(res, 200, {
             items: [],
