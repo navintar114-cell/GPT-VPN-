@@ -78,9 +78,7 @@ export function createAdminRateLimiter({
       return { limited: true, retryAfterSeconds: result.retryAfter };
     }
     result.entry.count += 1;
-    return result.entry.count >= maxFailedAttempts
-      ? blockedResult(result.entry, result.currentTime)
-      : { limited: false };
+    return { limited: false };
   }
 
   function recordSuccess(key) {
