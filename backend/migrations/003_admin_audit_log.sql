@@ -18,3 +18,19 @@ CREATE INDEX IF NOT EXISTS admin_audit_log_created_at_idx
 
 CREATE INDEX IF NOT EXISTS admin_audit_log_actor_created_at_idx
   ON admin_audit_log (actor_id, created_at DESC);
+
+-- Prevent accidental UPDATE/DELETE through ordinary application SQL.
+-- A database owner/superuser can still alter or disable this protection.
+CREATE OR REPLACE FUNCTION prevent_admin_audit_log_mutation()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RAISE EXCEPTION 'admin_audit_log is append-only';
+END;
+$$;
+
+DROP TRIGGER IF EXISTS admin_audit_log_no_mutation ON admin_audit_log;
+CREATE TRIGGER admin_audit_log_no_mutation
+  BEFORE UPDATE OR DELETE ON admin_audit_log
+  FOR EACH ROW EXECUTE FUNCTION prevent_admin_audit_log_mutation();
