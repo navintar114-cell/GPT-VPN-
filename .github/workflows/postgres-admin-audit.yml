@@ -1,0 +1,56 @@
+name: PostgreSQL Admin Audit Integration Tests
+
+on:
+  push:
+    branches: [test/postgres-admin-audit-integration]
+  pull_request:
+    branches: [security/admin-auth-audit-log]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-admin-audit:
+    name: PostgreSQL admin audit API integration tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: gptvpn_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d gptvpn_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/gptvpn_test
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Install backend dependencies
+        run: npm ci --prefix backend
+      - name: Apply registry and admin audit migrations
+        run: |
+          set -euo pipefail
+          for migration in \
+            backend/migrations/001_initial_registry.sql \
+            backend/migrations/002_provider_evidence_guard.sql \
+            backend/migrations/003_admin_audit_log.sql
+          do
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
+          done
+          # Verify migration 003 is safe to reapply.
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/migrations/003_admin_audit_log.sql
+      - name: Run PostgreSQL-backed admin audit API tests
+        run: node --test backend/test/postgres/admin-audit.integration.test.js
