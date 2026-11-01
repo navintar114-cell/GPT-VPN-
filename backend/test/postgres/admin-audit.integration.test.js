@@ -62,8 +62,10 @@ test("admin audit API writes and reads a PostgreSQL audit event; append-only tri
 
     const client = await pool.connect();
     const fixtureId = randomUUID();
+    let transactionOpen = false;
     try {
       await client.query("BEGIN");
+      transactionOpen = true;
       await client.query(
         `INSERT INTO admin_audit_log
           (actor_id, action, request_id, details)
@@ -95,10 +97,9 @@ test("admin audit API writes and reads a PostgreSQL audit event; append-only tri
       );
       assert.equal(fixture.rowCount, 1);
       await client.query("ROLLBACK");
+      transactionOpen = false;
     } finally {
-      if (!client._ending) {
-        await client.query("ROLLBACK").catch(() => {});
-      }
+      if (transactionOpen) await client.query("ROLLBACK").catch(() => {});
       client.release();
     }
   } finally {
