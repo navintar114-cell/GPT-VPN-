@@ -77,8 +77,10 @@ export function createOidcAdminAuthenticator({
       const keys = new Map();
       for (const jwk of document.keys) {
         if (
-          jwk?.kty !== "RSA" || jwk?.use !== "sig" ||
-          jwk?.alg !== "RS256" || typeof jwk.kid !== "string" ||
+          jwk?.kty !== "RSA" ||
+          (jwk.use !== undefined && jwk.use !== "sig") ||
+          (jwk.alg !== undefined && jwk.alg !== "RS256") ||
+          typeof jwk.kid !== "string" ||
           !/^[A-Za-z0-9._-]{1,128}$/.test(jwk.kid) ||
           typeof jwk.n !== "string" || typeof jwk.e !== "string" ||
           (Array.isArray(jwk.key_ops) && !jwk.key_ops.includes("verify")) ||
