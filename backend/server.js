@@ -5,6 +5,7 @@ import { authenticateAdmin, recordAdminAuditEvent } from "./admin-auth.js";
 import { createAdminRateLimiter } from "./admin-rate-limit.js";
 import { createClientIpResolver } from "./client-ip.js";
 import { authorizeAdmin } from "./admin-rbac.js";
+import { createOidcAdminAuthenticator } from "./oidc-admin-auth.js";
 
 const PORT = Number.parseInt(process.env.PORT ?? "8080", 10);
 const HOST = process.env.HOST ?? "0.0.0.0";
@@ -98,7 +99,15 @@ export function createServer({
     actorId: process.env.ADMIN_API_TOKEN_ACTOR_ID,
     roles: (process.env.ADMIN_API_TOKEN_ROLES ?? "")
       .split(",").map((value) => value.trim()).filter(Boolean)
-  }
+  },
+  adminIdentityProvider = process.env.ADMIN_AUTH_MODE === "oidc"
+    ? createOidcAdminAuthenticator({
+        issuer: process.env.ADMIN_OIDC_ISSUER,
+        audience: process.env.ADMIN_OIDC_AUDIENCE,
+        jwksUri: process.env.ADMIN_OIDC_JWKS_URI,
+        rolesClaim: process.env.ADMIN_OIDC_ROLES_CLAIM ?? "roles"
+      })
+    : null
 } = {}) {
   return http.createServer(async (req, res) => {
     const requestId = randomUUID();
@@ -158,7 +167,9 @@ export function createServer({
           }, requestId, { "retry-after": String(failureBlock.retryAfterSeconds) });
         }
 
-        const auth = authenticateAdmin(req, adminAuthConfig);
+        const auth = adminIdentityProvider
+          ? await adminIdentityProvider(req)
+          : authenticateAdmin(req, adminAuthConfig);
         if (!auth.ok) {
           if (auth.status === 401) {
             const failure = await adminRateLimiter.recordFailure(clientIp);
