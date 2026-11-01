@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, test/postgres-provider-evidence-migrations]
   pull_request:
-    branches: [main]
+    branches: [main, security/provider-evidence-guard]
   workflow_dispatch:
 
 permissions:
