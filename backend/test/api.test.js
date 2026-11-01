@@ -176,3 +176,39 @@ test("admin audit log rejects out-of-range limits before database access", async
   });
   assert.equal(queryCount, 0);
 });
+
+
+test("admin audit log accepts canonical decimal limits only", async () => {
+  const token = "test-only-admin-token";
+  const tokenSha256 = createHash("sha256").update(token).digest("hex");
+  const accepted = [];
+  const pool = {
+    async query(sql, values = []) {
+      if (sql.includes("ORDER BY created_at DESC")) accepted.push(values[0]);
+      return { rows: [], rowCount: 0 };
+    }
+  };
+
+  await withServer(async (baseUrl) => {
+    for (const value of ["1", "10", "100"]) {
+      const response = await fetch(`${baseUrl}/v1/admin/audit-log?limit=${value}`, {
+        headers: { authorization: `Bearer ${token}` }
+      });
+      assert.equal(response.status, 200, `expected ${value} to be accepted`);
+    }
+
+    for (const value of ["", "01", "1.0", "+1", " 1", "1e1", "0x10", "101", "9999"]) {
+      const response = await fetch(`${baseUrl}/v1/admin/audit-log?limit=${encodeURIComponent(value)}`, {
+        headers: { authorization: `Bearer ${token}` }
+      });
+      const body = await response.json();
+      assert.equal(response.status, 400, `expected ${JSON.stringify(value)} to be rejected`);
+      assert.equal(body.error.code, "INVALID_LIMIT");
+    }
+  }, {
+    getPoolImpl: async () => pool,
+    adminAuthConfig: { tokenSha256, actorId: "test-admin" }
+  });
+
+  assert.deepEqual(accepted, [1, 10, 100]);
+});

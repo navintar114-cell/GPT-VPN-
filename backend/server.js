@@ -145,8 +145,9 @@ export function createServer({
         }
 
         const rawLimit = url.searchParams.get("limit");
+        const validLimitSyntax = rawLimit === null || /^[1-9][0-9]{0,2}$/.test(rawLimit);
         const limit = rawLimit === null ? 50 : Number(rawLimit);
-        if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+        if (!validLimitSyntax || !Number.isInteger(limit) || limit < 1 || limit > 100) {
           return sendJson(res, 400, {
             error: { code: "INVALID_LIMIT", message: "limit must be an integer from 1 to 100." }
           }, requestId);
